@@ -1,4 +1,5 @@
+# Git-Based To-Do Tracker
 
-cat > .gitignore <<'EOF'
-*.swp
-*.tmp
+Small CLI to-do tracker using Bash + Git.
+
+
