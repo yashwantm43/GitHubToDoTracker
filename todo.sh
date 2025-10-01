@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# todo.sh - simple to-do tracker (Day 4: add + list + done)
+# todo.sh - simple to-do tracker (Day 5: add + list + done + delete)
 
 set -e
 
@@ -13,11 +13,13 @@ Usage:
   $0 add "task description" [priority]
   $0 list
   $0 done N
+  $0 delete N
 
 Examples:
   $0 add "Finish assignment" high
   $0 list
   $0 done 2
+  $0 delete 1
 USAGE
 }
 
@@ -49,6 +51,22 @@ mark_done() {
   echo "Marked task $n as done."
 }
 
+delete_task() {
+  n="$1"
+  if ! [[ "$n" =~ ^[0-9]+$ ]]; then
+    echo "Error: provide a valid task number."
+    exit 1
+  fi
+  total=$(wc -l < "$TASK_FILE")
+  if [ "$n" -lt 1 ] || [ "$n" -gt "$total" ]; then
+    echo "Error: invalid task number."
+    exit 1
+  fi
+
+  awk -v n="$n" 'NR!=n{print}' "$TASK_FILE" > "$TASK_FILE.tmp" && mv "$TASK_FILE.tmp" "$TASK_FILE"
+  echo "Deleted task $n."
+}
+
 cmd="$1"
 shift || true
 
@@ -74,6 +92,9 @@ case "$cmd" in
     ;;
   done)
     mark_done "$1"
+    ;;
+  delete)
+    delete_task "$1"
     ;;
   *)
     usage
