@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# todo.sh - simple to-do tracker (Day 3: add + list)
+# todo.sh - simple to-do tracker (Day 4: add + list + done)
 
 set -e
 
@@ -12,10 +12,12 @@ usage() {
 Usage:
   $0 add "task description" [priority]
   $0 list
+  $0 done N
 
 Examples:
   $0 add "Finish assignment" high
   $0 list
+  $0 done 2
 USAGE
 }
 
@@ -29,6 +31,22 @@ list_tasks() {
     status=$1; priority=$2; desc=$3; ts=$4;
     printf "%2d. %s %-40s (priority:%s) — %s\n", NR, status, desc, priority, ts
   }' "$TASK_FILE"
+}
+
+mark_done() {
+  n="$1"
+  if ! [[ "$n" =~ ^[0-9]+$ ]]; then
+    echo "Error: provide a valid task number."
+    exit 1
+  fi
+  total=$(wc -l < "$TASK_FILE")
+  if [ "$n" -lt 1 ] || [ "$n" -gt "$total" ]; then
+    echo "Error: invalid task number."
+    exit 1
+  fi
+
+  awk -v n="$n" -F'|' 'NR==n{$1="[x]"}{print $1 "|" $2 "|" $3 "|" $4}' "$TASK_FILE" > "$TASK_FILE.tmp" && mv "$TASK_FILE.tmp" "$TASK_FILE"
+  echo "Marked task $n as done."
 }
 
 cmd="$1"
@@ -54,8 +72,10 @@ case "$cmd" in
   list)
     list_tasks
     ;;
+  done)
+    mark_done "$1"
+    ;;
   *)
     usage
     ;;
 esac
-
