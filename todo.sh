@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# todo.sh - simple to-do tracker (Day 5: add + list + done + delete)
+# todo.sh - simple to-do tracker (Day 6: add + list + done + delete + logging)
 
 set -e
 
 TASK_FILE="$(pwd)/tasks.txt"
+LOG_DIR="$(pwd)/logs"
+LOG_FILE="$LOG_DIR/actions.log"
+
 mkdir -p "$(dirname "$TASK_FILE")"
-touch "$TASK_FILE"
+mkdir -p "$LOG_DIR"
+touch "$TASK_FILE" "$LOG_FILE"
 
 usage() {
   cat <<USAGE
@@ -21,6 +25,12 @@ Examples:
   $0 done 2
   $0 delete 1
 USAGE
+}
+
+log_action() {
+  action="$1"
+  detail="$2"
+  echo "$(date '+%F %T') | $action | $detail" >> "$LOG_FILE"
 }
 
 list_tasks() {
@@ -49,6 +59,7 @@ mark_done() {
 
   awk -v n="$n" -F'|' 'NR==n{$1="[x]"}{print $1 "|" $2 "|" $3 "|" $4}' "$TASK_FILE" > "$TASK_FILE.tmp" && mv "$TASK_FILE.tmp" "$TASK_FILE"
   echo "Marked task $n as done."
+  log_action "DONE" "Task $n"
 }
 
 delete_task() {
@@ -65,6 +76,7 @@ delete_task() {
 
   awk -v n="$n" 'NR!=n{print}' "$TASK_FILE" > "$TASK_FILE.tmp" && mv "$TASK_FILE.tmp" "$TASK_FILE"
   echo "Deleted task $n."
+  log_action "DELETE" "Task $n"
 }
 
 cmd="$1"
@@ -86,6 +98,7 @@ case "$cmd" in
     ts="$(date '+%F %T')"
     echo "[ ]|$priority|$desc|$ts" >> "$TASK_FILE"
     echo "Added: $desc (priority: $priority)"
+    log_action "ADD" "$desc (priority:$priority)"
     ;;
   list)
     list_tasks
