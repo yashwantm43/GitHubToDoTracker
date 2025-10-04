@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# todo.sh - simple to-do tracker (Day 6: add + list + done + delete + logging)
+# todo.sh - simple to-do tracker (add + list + done + delete + logging + auto commit)
 
 set -e
 
@@ -14,15 +14,14 @@ touch "$TASK_FILE" "$LOG_FILE"
 usage() {
   cat <<USAGE
 Usage:
-  $0 add "task description" [priority]
+  $0 add "task description" [priority] [--commit]
   $0 list
-  $0 done N
-  $0 delete N
+  $0 done N [--commit]
+  $0 delete N [--commit]
 
 Examples:
-  $0 add "Finish assignment" high
-  $0 list
-  $0 done 2
+  $0 add "Finish assignment" high --commit
+  $0 done 2 --commit
   $0 delete 1
 USAGE
 }
@@ -31,6 +30,14 @@ log_action() {
   action="$1"
   detail="$2"
   echo "$(date '+%F %T') | $action | $detail" >> "$LOG_FILE"
+}
+
+auto_commit() {
+  msg="$1"
+  # Add only code + ignore runtime files
+  git add todo.sh .gitignore logs/.gitkeep
+  git commit -m "$msg" || true   # don't fail if no changes
+  git push origin main || true
 }
 
 list_tasks() {
@@ -81,6 +88,15 @@ delete_task() {
 
 cmd="$1"
 shift || true
+commit_flag=false
+
+# check for optional --commit
+for arg in "$@"; do
+  if [ "$arg" = "--commit" ]; then
+    commit_flag=true
+    set -- "${@/--commit/}"   # remove flag from args
+  fi
+done
 
 case "$cmd" in
   add)
@@ -99,15 +115,18 @@ case "$cmd" in
     echo "[ ]|$priority|$desc|$ts" >> "$TASK_FILE"
     echo "Added: $desc (priority: $priority)"
     log_action "ADD" "$desc (priority:$priority)"
+    $commit_flag && auto_commit "Auto: added task '$desc'"
     ;;
   list)
     list_tasks
     ;;
   done)
     mark_done "$1"
+    $commit_flag && auto_commit "Auto: marked task $1 done"
     ;;
   delete)
     delete_task "$1"
+    $commit_flag && auto_commit "Auto: deleted task $1"
     ;;
   *)
     usage
