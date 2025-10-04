@@ -34,11 +34,15 @@ log_action() {
 
 auto_commit() {
   msg="$1"
-  # Add only code + ignore runtime files
+  # Add only code + config files, ignore runtime files
   git add todo.sh .gitignore logs/.gitkeep
-  git commit -m "$msg" || true   # don't fail if no changes
+  git commit -m "$msg" || true
   git push origin main || true
+
+  # Reset ignored files so they don’t block future pulls
+  git restore tasks.txt || true
 }
+
 
 list_tasks() {
   if [ ! -s "$TASK_FILE" ]; then
