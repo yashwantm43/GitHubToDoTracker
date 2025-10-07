@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# todo.sh - robust To-Do Tracker (fixed sorting + features)
+# todo.sh - To-Do Tracker (Final version up to Day 11)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -11,28 +11,20 @@ TMP_SORT="$ROOT/.tmp_tasks_sorted"
 mkdir -p "$LOG_DIR"
 touch "$TASK_FILE" "$LOG_FILE"
 
-# Colors (works in Git Bash)
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RESET='\033[0m'
 
 usage() {
-  cat <<USAGE
-Usage:
-  $0 add "task description" [priority] [--commit]
-  $0 list [--sort priority|status]
-  $0 done N [--commit]
-  $0 delete N [--commit]
-  $0 help
-
-Examples:
-  $0 add "Finish assignment" high --commit
-  $0 list --sort priority
-  $0 list --sort status
-  $0 done 2
-  $0 delete 1
-USAGE
+  echo -e "${YELLOW}To-Do Tracker Commands:${RESET}"
+  echo "  ./todo.sh add \"desc\" [priority] [--commit]"
+  echo "  ./todo.sh list [--sort priority|status|--done|--pending|--high]"
+  echo "  ./todo.sh search \"keyword\""
+  echo "  ./todo.sh done N [--commit]"
+  echo "  ./todo.sh delete N [--commit]"
+  echo "  ./todo.sh help"
 }
 
 log_action() {
@@ -47,28 +39,41 @@ auto_commit() {
   git -C "$ROOT" restore --quiet "$TASK_FILE" || true
 }
 
-# Normalize tasks file: remove CR, trim whitespace for each field
+# Normalize tasks file
 _normalize_tasks_file() {
   if [ -f "$TASK_FILE" ]; then
     sed -i 's/\r$//' "$TASK_FILE" 2>/dev/null || true
-    awk -F'|' 'BEGIN{OFS="|"} {for(i=1;i<=NF;i++){gsub(/^[ \t]+|[ \t]+$/,"",$i)} print}' "$TASK_FILE" > "$TASK_FILE.tmp" && mv "$TASK_FILE.tmp" "$TASK_FILE"
+    awk -F'|' 'BEGIN{OFS="|"} {
+      for(i=1;i<=NF;i++){gsub(/^[ \t]+|[ \t]+$/,"",$i)}
+      print
+    }' "$TASK_FILE" > "$TASK_FILE.tmp" && mv "$TASK_FILE.tmp" "$TASK_FILE"
   fi
 }
 
-# Format and print a tasks file (line format: status|priority|desc|ts)
+# Pretty print tasks
 _print_from_file() {
   n=1
   while IFS='|' read -r status priority desc ts; do
-    # normalize priority lowercase
+    [ -z "$status" ] && continue
     pr="$(echo "$priority" | tr '[:upper:]' '[:lower:]')"
-    # choose color
-    if [ "$pr" = "high" ]; then color="$RED"; elif [ "$pr" = "medium" ]; then color="$YELLOW"; else color="$GREEN"; fi
-    # choose symbol
-    if [ "$status" = "[x]" ]; then symbol="${GREEN}✔${RESET}"; else symbol="${RED}✘${RESET}"; fi
-    # print nicely
-    printf "%2d. %b %-40s (priority:%b%s%b) — %s\n" "$n" "$symbol" "$desc" "$color" "$pr" "$RESET" "$ts"
+    if [ "$pr" = "high" ]; then color="$RED"
+    elif [ "$pr" = "medium" ]; then color="$YELLOW"
+    else color="$GREEN"; fi
+    if [ "$status" = "[x]" ]; then symbol="${GREEN}✔${RESET}"
+    else symbol="${RED}✘${RESET}"; fi
+    printf "%2d. %b %-40s (priority:%b%s%b) — %s\n" \
+      "$n" "$symbol" "$desc" "$color" "$pr" "$RESET" "$ts"
     n=$((n+1))
   done < "$1"
+}
+
+# Summary line
+show_summary() {
+  total=$(wc -l < "$TASK_FILE" | tr -d ' ')
+  done_count=$(grep -c '^\[x\]' "$TASK_FILE" || true)
+  pending=$(( total - done_count ))
+  echo ""
+  echo -e "📋 ${YELLOW}Total:${RESET} $total | ${GREEN}Done:${RESET} $done_count | ${RED}Pending:${RESET} $pending"
 }
 
 list_tasks() {
@@ -81,22 +86,36 @@ list_tasks() {
 
   case "$sort_mode" in
     priority)
-      # create lines with priority rank then sort numerically by that rank
       awk -F'|' '{
-        p=tolower($2); gsub(/^[ \t]+|[ \t]+$/,"",p);
-        if(p=="high") r=1; else if(p=="medium") r=2; else r=3;
+        p=tolower($2)
+        if(p=="high") r=1; else if(p=="medium") r=2; else r=3
         print r "|" $0
-      }' "$TASK_FILE" | sort -t'|' -k1,1n -s | cut -d'|' -f2- > "$TMP_SORT"
+      }' "$TASK_FILE" | sort -t'|' -k1,1n | cut -d'|' -f2- > "$TMP_SORT"
       _print_from_file "$TMP_SORT"
       rm -f "$TMP_SORT"
       ;;
     status)
-      # status rank: undone=1 done=2; then priority inside
       awk -F'|' '{
-        st=$1; p=tolower($2); if(st=="[ ]") sr=1; else sr=2;
-        if(p=="high") pr=1; else if(p=="medium") pr=2; else pr=3;
+        st=$1; p=tolower($2)
+        if(st=="[ ]") sr=1; else sr=2
+        if(p=="high") pr=1; else if(p=="medium") pr=2; else pr=3
         print sr "|" pr "|" $0
-      }' "$TASK_FILE" | sort -t'|' -k1,1n -k2,2n -s | cut -d'|' -f3- > "$TMP_SORT"
+      }' "$TASK_FILE" | sort -t'|' -k1,1n -k2,2n | cut -d'|' -f3- > "$TMP_SORT"
+      _print_from_file "$TMP_SORT"
+      rm -f "$TMP_SORT"
+      ;;
+    --done)
+      grep '^\[x\]' "$TASK_FILE" > "$TMP_SORT" || true
+      _print_from_file "$TMP_SORT"
+      rm -f "$TMP_SORT"
+      ;;
+    --pending)
+      grep '^\[ \]' "$TASK_FILE" > "$TMP_SORT" || true
+      _print_from_file "$TMP_SORT"
+      rm -f "$TMP_SORT"
+      ;;
+    --high)
+      grep -i 'high' "$TASK_FILE" > "$TMP_SORT" || true
       _print_from_file "$TMP_SORT"
       rm -f "$TMP_SORT"
       ;;
@@ -104,12 +123,37 @@ list_tasks() {
       _print_from_file "$TASK_FILE"
       ;;
   esac
+  show_summary
+}
+
+search_tasks() {
+  keyword="$1"
+  _normalize_tasks_file
+  if [ -z "$keyword" ]; then
+    echo "Error: please provide a search term."
+    return
+  fi
+  if [ ! -s "$TASK_FILE" ]; then
+    echo "No tasks available."
+    return
+  fi
+
+  matches=$(grep -i "$keyword" "$TASK_FILE" || true)
+  if [ -z "$matches" ]; then
+    echo "No tasks found matching \"$keyword\"."
+    return
+  fi
+
+  echo "$matches" > "$ROOT/.tmp_search"
+  echo -e "${YELLOW}Search results for \"$keyword\":${RESET}"
+  _print_from_file "$ROOT/.tmp_search"
+  rm -f "$ROOT/.tmp_search"
+  show_summary
 }
 
 add_task() {
   desc="$1"
   priority="${2:-medium}"
-  # normalize priority
   priority="$(echo "$priority" | tr '[:upper:]' '[:lower:]')"
   if [[ "$desc" == *"|"* ]]; then
     echo "Error: '|' not allowed in description."
@@ -118,7 +162,7 @@ add_task() {
   _normalize_tasks_file
   ts="$(date '+%F %T')"
   echo "[ ]|$priority|$desc|$ts" >> "$TASK_FILE"
-  echo "Added: $desc (priority: $priority)"
+  echo -e "Added: ${YELLOW}$desc${RESET} (priority: $priority)"
   log_action "ADD" "$desc (priority:$priority)"
 }
 
@@ -131,7 +175,7 @@ mark_done() {
     exit 1
   fi
   awk -v n="$n" -F'|' 'NR==n{$1="[x]"}{print $1 "|" $2 "|" $3 "|" $4}' "$TASK_FILE" > "$TASK_FILE.tmp" && mv "$TASK_FILE.tmp" "$TASK_FILE"
-  echo "Marked task $n as done."
+  echo -e "Marked task $n as ${GREEN}done${RESET}."
   log_action "DONE" "Task $n"
 }
 
@@ -144,11 +188,11 @@ delete_task() {
     exit 1
   fi
   awk -v n="$n" 'NR!=n{print}' "$TASK_FILE" > "$TASK_FILE.tmp" && mv "$TASK_FILE.tmp" "$TASK_FILE"
-  echo "Deleted task $n."
+  echo -e "Deleted task $n."
   log_action "DELETE" "Task $n"
 }
 
-# parse args, support --commit anywhere
+# Parse args
 cmd="${1:-}"
 shift || true
 commit_flag=false
@@ -158,40 +202,16 @@ for a in "$@"; do
 done
 set -- "${ARGS[@]}"
 
-search_tasks() {
-  keyword="$1"
-  _normalize_tasks_file
-  if [ -z "$keyword" ]; then
-    echo "Error: please provide a search term."
-    return
-  fi
-
-  if [ ! -s "$TASK_FILE" ]; then
-    echo "No tasks available."
-    return
-  fi
-
-  # Case-insensitive search
-  matches=$(grep -i "$keyword" "$TASK_FILE" || true)
-  if [ -z "$matches" ]; then
-    echo "No tasks found matching \"$keyword\"."
-    return
-  fi
-
-  echo "$matches" > "$ROOT/.tmp_search"
-  echo "Search results for \"$keyword\":"
-  _print_from_file "$ROOT/.tmp_search"
-  rm -f "$ROOT/.tmp_search"
-}
-
-
 case "$cmd" in
   add)
-    add_task "$1" "$2"
+    add_task "$1" "${2:-}"
     $commit_flag && auto_commit "Auto: added task '$1'"
     ;;
   list)
-    list_tasks "$1"
+    list_tasks "${1:-}"
+    ;;
+  search)
+    search_tasks "${1:-}"
     ;;
   done)
     mark_done "$1"
@@ -200,9 +220,6 @@ case "$cmd" in
   delete)
     delete_task "$1"
     $commit_flag && auto_commit "Auto: deleted task $1"
-    ;;
-  search)
-    search_tasks "$1"
     ;;
   help|"")
     usage
