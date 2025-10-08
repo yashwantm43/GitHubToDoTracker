@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# todo.sh - To-Do Tracker (Final version up to Day 11)
+# todo.sh - Git-based To-Do Tracker (Final Version - Day 12)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -11,12 +11,15 @@ TMP_SORT="$ROOT/.tmp_tasks_sorted"
 mkdir -p "$LOG_DIR"
 touch "$TASK_FILE" "$LOG_FILE"
 
-# Colors
+# Colors for pretty output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RESET='\033[0m'
 
+# -------------------------
+# HELP / USAGE
+# -------------------------
 usage() {
   echo -e "${YELLOW}To-Do Tracker Commands:${RESET}"
   echo "  ./todo.sh add \"desc\" [priority] [--commit]"
@@ -24,9 +27,14 @@ usage() {
   echo "  ./todo.sh search \"keyword\""
   echo "  ./todo.sh done N [--commit]"
   echo "  ./todo.sh delete N [--commit]"
+  echo "  ./todo.sh backup"
+  echo "  ./todo.sh export csv"
   echo "  ./todo.sh help"
 }
 
+# -------------------------
+# UTILITIES
+# -------------------------
 log_action() {
   echo "$(date '+%F %T') | $1 | $2" >> "$LOG_FILE"
 }
@@ -39,7 +47,6 @@ auto_commit() {
   git -C "$ROOT" restore --quiet "$TASK_FILE" || true
 }
 
-# Normalize tasks file
 _normalize_tasks_file() {
   if [ -f "$TASK_FILE" ]; then
     sed -i 's/\r$//' "$TASK_FILE" 2>/dev/null || true
@@ -50,7 +57,9 @@ _normalize_tasks_file() {
   fi
 }
 
-# Pretty print tasks
+# -------------------------
+# DISPLAY HELPERS
+# -------------------------
 _print_from_file() {
   n=1
   while IFS='|' read -r status priority desc ts; do
@@ -67,13 +76,56 @@ _print_from_file() {
   done < "$1"
 }
 
-# Summary line
 show_summary() {
   total=$(wc -l < "$TASK_FILE" | tr -d ' ')
   done_count=$(grep -c '^\[x\]' "$TASK_FILE" || true)
   pending=$(( total - done_count ))
   echo ""
   echo -e "📋 ${YELLOW}Total:${RESET} $total | ${GREEN}Done:${RESET} $done_count | ${RED}Pending:${RESET} $pending"
+}
+
+# -------------------------
+# CORE COMMANDS
+# -------------------------
+add_task() {
+  desc="$1"
+  priority="${2:-medium}"
+  priority="$(echo "$priority" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$desc" == *"|"* ]]; then
+    echo "Error: '|' not allowed in description."
+    exit 1
+  fi
+  _normalize_tasks_file
+  ts="$(date '+%F %T')"
+  echo "[ ]|$priority|$desc|$ts" >> "$TASK_FILE"
+  echo -e "Added: ${YELLOW}$desc${RESET} (priority: $priority)"
+  log_action "ADD" "$desc (priority:$priority)"
+}
+
+mark_done() {
+  n="$1"
+  _normalize_tasks_file
+  total=$(wc -l < "$TASK_FILE")
+  if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ] || [ "$n" -gt "$total" ]; then
+    echo "Error: invalid task number."
+    exit 1
+  fi
+  awk -v n="$n" -F'|' 'NR==n{$1="[x]"}{print $1 "|" $2 "|" $3 "|" $4}' "$TASK_FILE" > "$TASK_FILE.tmp" && mv "$TASK_FILE.tmp" "$TASK_FILE"
+  echo -e "Marked task $n as ${GREEN}done${RESET}."
+  log_action "DONE" "Task $n"
+}
+
+delete_task() {
+  n="$1"
+  _normalize_tasks_file
+  total=$(wc -l < "$TASK_FILE")
+  if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ] || [ "$n" -gt "$total" ]; then
+    echo "Error: invalid task number."
+    exit 1
+  fi
+  awk -v n="$n" 'NR!=n{print}' "$TASK_FILE" > "$TASK_FILE.tmp" && mv "$TASK_FILE.tmp" "$TASK_FILE"
+  echo -e "Deleted task $n."
+  log_action "DELETE" "Task $n"
 }
 
 list_tasks() {
@@ -151,48 +203,28 @@ search_tasks() {
   show_summary
 }
 
-add_task() {
-  desc="$1"
-  priority="${2:-medium}"
-  priority="$(echo "$priority" | tr '[:upper:]' '[:lower:]')"
-  if [[ "$desc" == *"|"* ]]; then
-    echo "Error: '|' not allowed in description."
-    exit 1
-  fi
-  _normalize_tasks_file
-  ts="$(date '+%F %T')"
-  echo "[ ]|$priority|$desc|$ts" >> "$TASK_FILE"
-  echo -e "Added: ${YELLOW}$desc${RESET} (priority: $priority)"
-  log_action "ADD" "$desc (priority:$priority)"
+# -------------------------
+# NEW FEATURES (Day 12)
+# -------------------------
+backup_tasks() {
+  mkdir -p "$ROOT/backups"
+  filename="tasks-$(date '+%Y%m%d-%H%M%S').txt"
+  cp "$TASK_FILE" "$ROOT/backups/$filename"
+  echo "Backup saved to backups/$filename"
+  log_action "BACKUP" "$filename"
 }
 
-mark_done() {
-  n="$1"
-  _normalize_tasks_file
-  total=$(wc -l < "$TASK_FILE")
-  if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ] || [ "$n" -gt "$total" ]; then
-    echo "Error: invalid task number."
-    exit 1
-  fi
-  awk -v n="$n" -F'|' 'NR==n{$1="[x]"}{print $1 "|" $2 "|" $3 "|" $4}' "$TASK_FILE" > "$TASK_FILE.tmp" && mv "$TASK_FILE.tmp" "$TASK_FILE"
-  echo -e "Marked task $n as ${GREEN}done${RESET}."
-  log_action "DONE" "Task $n"
+export_csv() {
+  mkdir -p "$ROOT/backups"
+  csvfile="$ROOT/backups/tasks-$(date '+%Y%m%d-%H%M%S').csv"
+  awk -F'|' 'BEGIN{OFS=","; print "Status,Priority,Description,Timestamp"} {print $1,$2,$3,$4}' "$TASK_FILE" > "$csvfile"
+  echo "Exported tasks to $csvfile"
+  log_action "EXPORT" "$csvfile"
 }
 
-delete_task() {
-  n="$1"
-  _normalize_tasks_file
-  total=$(wc -l < "$TASK_FILE")
-  if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ] || [ "$n" -gt "$total" ]; then
-    echo "Error: invalid task number."
-    exit 1
-  fi
-  awk -v n="$n" 'NR!=n{print}' "$TASK_FILE" > "$TASK_FILE.tmp" && mv "$TASK_FILE.tmp" "$TASK_FILE"
-  echo -e "Deleted task $n."
-  log_action "DELETE" "Task $n"
-}
-
-# Parse args
+# -------------------------
+# COMMAND ROUTER
+# -------------------------
 cmd="${1:-}"
 shift || true
 commit_flag=false
@@ -220,6 +252,12 @@ case "$cmd" in
   delete)
     delete_task "$1"
     $commit_flag && auto_commit "Auto: deleted task $1"
+    ;;
+  backup)
+    backup_tasks
+    ;;
+  export)
+    export_csv
     ;;
   help|"")
     usage
